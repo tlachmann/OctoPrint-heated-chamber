@@ -1,4 +1,4 @@
-import Mock.GPIO as GPIO
+import RPi.GPIO as GPIO
 
 GPIO.setwarnings(True)
 GPIO.setmode(GPIO.BOARD)

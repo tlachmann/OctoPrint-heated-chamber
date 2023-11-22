@@ -1,4 +1,4 @@
-import Mock.GPIO as GPIO
+import RPi.GPIO as GPIO
 
 
 class Fan:

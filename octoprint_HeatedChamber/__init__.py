@@ -11,12 +11,12 @@ from __future__ import absolute_import
 
 import octoprint.plugin
 from octoprint_HeatedChamber.fan import DummyFan
-from octoprint_HeatedChamber.temperature import DummyTemperatureSensor
-from octoprint.util import RepeatedTimer
+from octoprint_HeatedChamber.temperature import Ds18b20
 
 
 class HeatedchamberPlugin(
     octoprint.plugin.StartupPlugin,
+    octoprint.plugin.ShutdownPlugin,
     octoprint.plugin.SettingsPlugin,
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.TemplatePlugin,
@@ -30,23 +30,34 @@ class HeatedchamberPlugin(
     ##~~ StartupPlugin mixin
 
     def on_startup(self, host, port):
-        self.running = True
+        self.running = False
+        self._fan = DummyFan()
+        self._temperature_sensor = Ds18b20(self._logger, 10)
+        self._target_temperature = None 
+
         self._logger.info("Starting...")
 
     def on_after_startup(self):
-        self.fan = DummyFan()
-        self.temperature = DummyTemperatureSensor()
+        self._temperature_sensor.start()
         self._logger.info("Started.")
-        self.running = True
 
-        frequency = self._settings.frequency
-        self.timer = RepeatedTimer(frequency, self.loop, condition=self.is_running)
-        self.timer.run()
+    def on_shutdown(self):
+      self._logger.info("Stopping...")
+      self._temperature_sensor.stop()
+      self._logger.info("Stopped.")
+
+    # def on_plugin_enabled(self):
+    #     self._temperature.start()
+    #     self._logger.info("Enabled.")
+        
+    # def on_plugin_disabled(self):
+    #     self._temperature.stop()
+    #     self._logger.info("Disabled.")
 
     ##~~ SettingsPlugin mixin
 
     def get_settings_defaults(self):
-        return dict(frequency=5.0, fan=None, temperature_sensor=None, heater=None)
+        return dict(frequency=5.0, fan=None, temperature_sensor=dict(ds18b20=dict(frequency=5.0)), heater=None)
 
     def get_settings_version(self):
         return 1
@@ -82,6 +93,30 @@ class HeatedchamberPlugin(
             }
         }
 
+    def enrich_temperatures(self, comm_instance, parsed_temperatures, *args, **kwargs):
+      self._logger.info(f"parsed_temperatures={parsed_temperatures}")
+      
+      target_temperature = 0 # 0 means off for the preheat plugin
+      if self._target_temperature is not None:
+        target_temperature = self._target_temperature
+       
+      parsed_temperatures["C"] = (self._temperature_sensor.temperature(), target_temperature)
+      
+      self._logger.info(f"Returning parsed_temperatures={parsed_temperatures}")
+      return parsed_temperatures;
+
+    def detect_m141(self, comm_instance, phase, cmd, cmd_type, gcode, subcode=None, tags=None, *args, **kwargs):
+      if gcode and gcode == "M141":
+        target_temp = int(cmd[cmd.index('S') + 1:])
+
+        if target_temp == 0:
+          self._target_temperature = None
+        else:
+          self._target_temperature = target_temp
+
+        self._logger.info(f"Set target chamber temperature to: {self._target_temperature}")
+
+        return None
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
@@ -101,5 +136,7 @@ def __plugin_load__():
 
     global __plugin_hooks__
     __plugin_hooks__ = {
-        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
+        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information,
+        "octoprint.comm.protocol.temperatures.received": __plugin_implementation__.enrich_temperatures,
+        "octoprint.comm.protocol.gcode.queuing": __plugin_implementation__.detect_m141
     }
