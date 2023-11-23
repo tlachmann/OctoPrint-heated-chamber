@@ -2,15 +2,6 @@
 from __future__ import absolute_import
 from RPi import GPIO
 from octoprint.util import RepeatedTimer
-
-### (Don't forget to remove me)
-# This is a basic skeleton for your plugin's __init__.py. You probably want to adjust the class name of your plugin
-# as well as the plugin mixins it's subclassing from. This is really just a basic skeleton to get you started,
-# defining your plugin as a template plugin, settings and asset plugin. Feel free to add or remove mixins
-# as necessary.
-#
-# Take a look at the documentation on what other plugin mixins are available.
-
 import octoprint.plugin
 
 from octoprint_heated_chamber.fan import PwmFan
@@ -29,7 +20,7 @@ class HeatedChamberPlugin(
         target_temperature = self._target_temperature
         printer = self._printer
 
-        need_vacum = printer.is_printing or printer.is_pausing or printer.is_paused
+        need_vacum = printer.is_printing
 
         if target_temperature is not None:
             current_temperature = self._temperature_sensor.get_temperature()
@@ -63,8 +54,6 @@ class HeatedChamberPlugin(
                 self._fan.set_power(self._fan_vacum_power)
             else:
                 self._fan.set_power(self._fan_idle_power)
-
-        self._logger.info("Looped.")
         
 
     def is_running(self) -> bool:
@@ -77,7 +66,7 @@ class HeatedChamberPlugin(
         # TODO not sure this is the best place
         GPIO.setwarnings(True)
         GPIO.setmode(GPIO.BCM)
-        
+
         pwm_fan_pin = self._settings.get_int(['fan', 'pwm', 'pin'], merged=True)
         pwm_fan_frequency = self._settings.get_int(['fan', 'pwm', 'frequency'], merged=True)
         self._fan = PwmFan(self._logger, pwm_fan_pin, pwm_fan_frequency)
@@ -95,6 +84,7 @@ class HeatedChamberPlugin(
         return octoprint.plugin.StartupPlugin.on_startup(self, host, port)
 
     def on_after_startup(self):
+        
         self._target_temperature = None 
         self._fan_idle_power = self._settings.get_float(['fan', 'pwm', 'idle_power'], merged=True)
         self._fan_vacum_power = self._settings.get_float(['fan', 'pwm', 'vacum_power'], merged=True)

@@ -34,12 +34,12 @@ class RelayHeater(Heater):
     def turn_on(self) -> None:
         GPIO.output(self._pin, GPIO.LOW)
         self._on = True
-        self._logger.info("Heater turned on")
+        self._logger.debug("Heater turned on")
 
     def turn_off(self) -> None:
         GPIO.output(self._pin, GPIO.HIGH)
         self._on = False
-        self._logger.info("Heater turned off")
+        self._logger.debug("Heater turned off")
 
     def state(self) -> bool:
         return self._on

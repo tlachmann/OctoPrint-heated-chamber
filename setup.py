@@ -34,6 +34,7 @@ plugin_license = "AGPLv3"
 
 # Any additional requirements besides OctoPrint should be listed here
 plugin_requires = [
+    "pigpio>=1.78",
     "RPi.GPIO>=0.6.5"
 ]
 

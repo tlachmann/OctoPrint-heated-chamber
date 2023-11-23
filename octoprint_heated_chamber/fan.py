@@ -1,5 +1,4 @@
-import RPi.GPIO as GPIO
-
+import pigpio
 
 class Fan:
     def set_power(self, power) -> None:
@@ -20,7 +19,7 @@ class DummyFan(Fan):
 
     def set_power(self, power) -> None:
         self._power = power
-        self._logger.info(f"Set power to {self._power}")
+        self._logger.debug(f"Set power to {self._power}")
         pass
 
     def get_power(self):
@@ -34,21 +33,24 @@ class PwmFan(Fan):
         self._logger = logger
         self._frequency = pwm_frequency
         self._pin = pwm_pin
+        self._pi = pigpio.pi() 
 
-        GPIO.setup(self._pin, GPIO.OUT)
-        self._fan = GPIO.PWM(self._pin, self._frequency)
-        self._fan.start(0)
+        if not self._pi.connected:
+            self._logger.error("Error connectiong to pigpio")
+
+        self._pi.hardware_PWM(self._pin, pwm_frequency, 0)
+        self._pi.set_PWM_range(self._pin, 100)
 
     def destroy(self):
-        self._fan = None
-        GPIO.cleanup(self._pin)
-
+        self._pi.stop()
+        
     def set_power(self, power):
         assert power >= 0
         assert power <= 1
 
         self._power = power
-        self._fan.ChangeDutyCycle(int(self._power * 100))
+        self._pi.set_PWM_dutycycle(self._pin, int(self._power * 100))
+
 
     def get_power(self):
         return self._power

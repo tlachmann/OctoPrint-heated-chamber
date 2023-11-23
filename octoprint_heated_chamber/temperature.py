@@ -59,5 +59,3 @@ class Ds18b20(TemperatureSensor):
         if equals_pos != -1:
             temp_string = lines[1][equals_pos + 2 :]
             self._temperature = float(temp_string) / 1000.0
-
-        self._logger.info("Ds18b20 looped.")
