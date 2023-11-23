@@ -1,4 +1,4 @@
-# OctoPrint-Heatedchamber
+# OctoPrint-heated-chamber
 
 This plugin controls the enclosure temperature via a temperature sensor, a heater and the enclosure air extraction fan.
 
