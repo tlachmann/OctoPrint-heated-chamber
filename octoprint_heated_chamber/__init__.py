@@ -13,12 +13,11 @@ from octoprint.util import RepeatedTimer
 
 import octoprint.plugin
 
-from octoprint_HeatedChamber.fan import PwmFan
-from octoprint_HeatedChamber.temperature import Ds18b20
-from octoprint_HeatedChamber.heater import RelayHeater
+from octoprint_heated_chamber.fan import PwmFan
+from octoprint_heated_chamber.temperature import Ds18b20
+from octoprint_heated_chamber.heater import RelayHeater
 
-
-class HeatedchamberPlugin(
+class HeatedChamberPlugin(
     octoprint.plugin.StartupPlugin,
     octoprint.plugin.ShutdownPlugin,
     octoprint.plugin.SettingsPlugin,
@@ -28,13 +27,22 @@ class HeatedchamberPlugin(
     def _loop(self) -> None:
         
         target_temperature = self._target_temperature
+        printer = self._printer
+
+        need_vacum = printer.is_printing or printer.is_pausing or printer.is_paused
+
         if target_temperature is not None:
             current_temperature = self._temperature_sensor.get_temperature()
             self._logger.info(f"current_temperature={current_temperature}, target_temperature={target_temperature}")
             if target_temperature - current_temperature > 2.5:
                 if not self._heater.state():
                     self._heater.turn_on()
-                self._fan.set_power(0.1)
+
+                if need_vacum:
+                    self._fan.set_power(self._fan_vacum_power)
+                else:
+                    self._fan.set_power(self._fan_idle_power)
+
             elif current_temperature - target_temperature > 2.5:
                 if self._heater.state():
                     self._heater.turn_off()
@@ -43,10 +51,18 @@ class HeatedchamberPlugin(
             else:
                 if self._heater.state():
                     self._heater.turn_off()
-                self._fan.set_power(0.1)
+
+                if need_vacum:
+                    self._fan.set_power(self._fan_vacum_power)
+                else:
+                    self._fan.set_power(self._fan_idle_power)
         else:
-           self._heater.turn_off()
-           self._fan.set_power(0.1)
+            self._heater.turn_off()
+
+            if need_vacum:
+                self._fan.set_power(self._fan_vacum_power)
+            else:
+                self._fan.set_power(self._fan_idle_power)
 
         self._logger.info("Looped.")
         
@@ -81,6 +97,7 @@ class HeatedchamberPlugin(
     def on_after_startup(self):
         self._target_temperature = None 
         self._fan_idle_power = self._settings.get_float(['fan', 'pwm', 'idle_power'], merged=True)
+        self._fan_vacum_power = self._settings.get_float(['fan', 'pwm', 'vacum_power'], merged=True)
         
         self._temperature_sensor.start()
         self._fan.set_power(self._fan_idle_power)
@@ -128,7 +145,8 @@ class HeatedchamberPlugin(
                 pwm=dict(
                     pin=18,
                     frequency=25000,
-                    idle_power=0
+                    idle_power=0,
+                    vacum_power=0.1
                 )
             ), 
             temperature_sensor=dict(
@@ -166,9 +184,9 @@ class HeatedchamberPlugin(
         # Define your plugin's asset files to automatically include in the
         # core UI here.
         return {
-            "js": ["js/HeatedChamber.js"],
-            "css": ["css/HeatedChamber.css"],
-            "less": ["less/HeatedChamber.less"],
+            "js": ["js/heated-chamber.js"],
+            "css": ["css/heated-chamber.css"],
+            "less": ["less/heated-chamber.less"],
         }
 
     ##~~ Softwareupdate hook
@@ -179,12 +197,12 @@ class HeatedchamberPlugin(
         # for details.
         return {
             "HeatedChamber": {
-                "displayName": "Heatedchamber Plugin",
+                "displayName": "Heated chamber",
                 "displayVersion": self._plugin_version,
                 # version check: github repository
                 "type": "github_release",
                 "user": "filosganga",
-                "repo": "OctoPrint-Heatedchamber",
+                "repo": "OctoPrint-HeatedChamber",
                 "current": self._plugin_version,
                 # update method: pip
                 "pip": "https://github.com/filosganga/OctoPrint-Heatedchamber/archive/{target_version}.zip",
@@ -203,8 +221,9 @@ class HeatedchamberPlugin(
       self._logger.info(f"Returning parsed_temperatures={parsed_temperatures}")
       return parsed_temperatures;
 
-    def detect_m141(self, comm_instance, phase, cmd, cmd_type, gcode, subcode=None, tags=None, *args, **kwargs):
-      if gcode and gcode == "M141":
+    def detect_m141_m191(self, comm_instance, phase, cmd, cmd_type, gcode, subcode=None, tags=None, *args, **kwargs):
+      # chamber temp can be set either via M141 or M191
+      if gcode and (gcode == "M141" or gcode == "M191"):
         target_temp = int(cmd[cmd.index('S') + 1:])
 
         if target_temp == 0:
@@ -219,7 +238,7 @@ class HeatedchamberPlugin(
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
 # ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
 # can be overwritten via __plugin_xyz__ control properties. See the documentation for that.
-__plugin_name__ = "Heatedchamber Plugin"
+__plugin_name__ = "Heated chamber"
 
 
 # Set the Python version your plugin is compatible with below. Recommended is Python 3 only for all new plugins.
@@ -230,11 +249,11 @@ __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
 
 def __plugin_load__():
     global __plugin_implementation__
-    __plugin_implementation__ = HeatedchamberPlugin()
+    __plugin_implementation__ = HeatedChamberPlugin()
 
     global __plugin_hooks__
     __plugin_hooks__ = {
         "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information,
         "octoprint.comm.protocol.temperatures.received": __plugin_implementation__.enrich_temperatures,
-        "octoprint.comm.protocol.gcode.queuing": __plugin_implementation__.detect_m141
+        "octoprint.comm.protocol.gcode.queuing": __plugin_implementation__.detect_m141_m191
     }
