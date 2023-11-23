@@ -1,10 +1,12 @@
 import RPi.GPIO as GPIO
 
-GPIO.setwarnings(True)
-GPIO.setmode(GPIO.BOARD)
-
-
 class Heater:
+    def __init__(self, logger) -> None:
+      self._logger = logger
+
+    def destroy(self) -> None:
+        pass
+
     def turn_on(self) -> None:
         pass
 
@@ -22,19 +24,26 @@ class Heater:
 
 
 class RelayHeater(Heater):
-    def __init__(self, pin) -> None:
-        self.pin = pin
+    def __init__(self, logger, pin) -> None:
+        super().__init__(logger)
+        self._pin = pin
 
-        GPIO.setup(pin, GPIO.OUT)
-        GPIO.output(pin, GPIO.LOW)
+        GPIO.setup(self._pin, GPIO.OUT)
+        GPIO.output(self._pin, GPIO.HIGH)
 
     def turn_on(self) -> None:
-        GPIO.output(self.pin, GPIO.HIGH)
-        self.on = True
+        GPIO.output(self._pin, GPIO.LOW)
+        self._on = True
+        self._logger.info("Heater turned on")
 
     def turn_off(self) -> None:
-        GPIO.output(self.pin, GPIO.LOW)
-        self.on = False
+        GPIO.output(self._pin, GPIO.HIGH)
+        self._on = False
+        self._logger.info("Heater turned off")
 
     def state(self) -> bool:
-        return self.on
+        return self._on
+
+    def destroy(self) -> None:
+        GPIO.cleanup(self._pin)
+

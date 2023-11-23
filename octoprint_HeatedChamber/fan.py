@@ -7,45 +7,48 @@ class Fan:
 
     def get_power(self) -> float:
         pass
+    
+    def destroy(self) -> None:
+      pass
 
 
 class DummyFan(Fan):
-    def __init__(self):
-        self.power = 0
+    def __init__(self, logger):
+        self._logger = logger
+        self._power = 0
         pass
 
     def set_power(self, power) -> None:
-        self.power = power
+        self._power = power
+        self._logger.info(f"Set power to {self._power}")
         pass
 
     def get_power(self):
-        return self.power
+        return self._power
 
 
 class PwmFan(Fan):
     """A class the represent a PWM controlled fan"""
 
-    def __init__(self, pwmPin, frequency):
-        self.frequency = frequency
-        self.pin = pwmPin
+    def __init__(self, logger, pwm_pin, pwm_frequency):
+        self._logger = logger
+        self._frequency = pwm_frequency
+        self._pin = pwm_pin
 
-        # TODO These should be global
-        GPIO.setwarnings(True)
-        GPIO.setmode(GPIO.BOARD)
-
-        GPIO.setup(self.pin, GPIO.OUT)
-        self.fan = GPIO.PWM(self.pin, self.frequency)
-        self.fan.start(0)
+        GPIO.setup(self._pin, GPIO.OUT)
+        self._fan = GPIO.PWM(self._pin, self._frequency)
+        self._fan.start(0)
 
     def destroy(self):
-        self.fan = None
-        GPIO.cleanup(self.pin)
+        self._fan = None
+        GPIO.cleanup(self._pin)
 
     def set_power(self, power):
         assert power >= 0
-        assert power <= 100
+        assert power <= 1
 
-        self.fan.ChangeDutyCycle(power)
+        self._power = power
+        self._fan.ChangeDutyCycle(int(self._power * 100))
 
     def get_power(self):
-        pass
+        return self._power

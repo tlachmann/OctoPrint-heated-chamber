@@ -4,11 +4,11 @@ import time
 from octoprint.util import RepeatedTimer
 
 class TemperatureSensor:
-    def temperature(self) -> float:
+    def get_temperature(self) -> float:
         pass
 
 class DummyTemperatureSensor(TemperatureSensor):
-    def temperature(self) -> float:
+    def get_temperature(self) -> float:
         random.uniform(15.0, 70.0)
 
 
@@ -24,7 +24,7 @@ class Ds18b20(TemperatureSensor):
     def is_running(self) -> bool:
         return self._running
     
-    def temperature(self) -> float:
+    def get_temperature(self) -> float:
       return self._temperature
 
     def start(self) -> None:
@@ -49,7 +49,6 @@ class Ds18b20(TemperatureSensor):
         return lines
     
     def _loop(self):
-        self._logger.info("Ds18b20 looping...")
 
         lines = self._read_temp_raw()
         while lines[0].strip()[-3:] != "YES":
@@ -60,6 +59,5 @@ class Ds18b20(TemperatureSensor):
         if equals_pos != -1:
             temp_string = lines[1][equals_pos + 2 :]
             self._temperature = float(temp_string) / 1000.0
-            self._logger.info(f"Ds18b20 looped with temperature={self._temperature}")
 
         self._logger.info("Ds18b20 looped.")

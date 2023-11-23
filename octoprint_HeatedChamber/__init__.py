@@ -1,5 +1,7 @@
 # coding=utf-8
 from __future__ import absolute_import
+from RPi import GPIO
+from octoprint.util import RepeatedTimer
 
 ### (Don't forget to remove me)
 # This is a basic skeleton for your plugin's __init__.py. You probably want to adjust the class name of your plugin
@@ -10,8 +12,10 @@ from __future__ import absolute_import
 # Take a look at the documentation on what other plugin mixins are available.
 
 import octoprint.plugin
-from octoprint_HeatedChamber.fan import DummyFan
+
+from octoprint_HeatedChamber.fan import PwmFan
 from octoprint_HeatedChamber.temperature import Ds18b20
+from octoprint_HeatedChamber.heater import RelayHeater
 
 
 class HeatedchamberPlugin(
@@ -21,47 +25,141 @@ class HeatedchamberPlugin(
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.TemplatePlugin,
 ):
-    def loop(self) -> None:
-        self._logger.info("Looping...")
+    def _loop(self) -> None:
+        
+        target_temperature = self._target_temperature
+        if target_temperature is not None:
+            current_temperature = self._temperature_sensor.get_temperature()
+            self._logger.info(f"current_temperature={current_temperature}, target_temperature={target_temperature}")
+            if target_temperature - current_temperature > 2.5:
+                if not self._heater.state():
+                    self._heater.turn_on()
+                self._fan.set_power(0.1)
+            elif current_temperature - target_temperature > 2.5:
+                if self._heater.state():
+                    self._heater.turn_off()
+                power = min(round((current_temperature - target_temperature) / 10, 1), 1)
+                self._fan.set_power(power)
+            else:
+                if self._heater.state():
+                    self._heater.turn_off()
+                self._fan.set_power(0.1)
+        else:
+           self._heater.turn_off()
+           self._fan.set_power(0.1)
+
+        self._logger.info("Looped.")
+        
 
     def is_running(self) -> bool:
-        return self.running
+        return self._running
 
     ##~~ StartupPlugin mixin
 
     def on_startup(self, host, port):
-        self.running = False
-        self._fan = DummyFan()
-        self._temperature_sensor = Ds18b20(self._logger, 10)
-        self._target_temperature = None 
+        
+        # TODO not sure this is the best place
+        GPIO.setwarnings(True)
+        GPIO.setmode(GPIO.BCM)
+        
+        pwm_fan_pin = self._settings.get_int(['fan', 'pwm', 'pin'], merged=True)
+        pwm_fan_frequency = self._settings.get_int(['fan', 'pwm', 'frequency'], merged=True)
+        self._fan = PwmFan(self._logger, pwm_fan_pin, pwm_fan_frequency)
+        
+        temperature_sensor_ds18b20_frequency = self._settings.get_int(['temperature_sensor', 'ds18b20', 'frequency'], merged=True)
+        self._temperature_sensor = Ds18b20(self._logger, temperature_sensor_ds18b20_frequency)
 
-        self._logger.info("Starting...")
+        heater_pin = self._settings.get_int(['heater', 'relay', 'pin'], merged=True)
+        self._heater = RelayHeater(self._logger, heater_pin)
+
+        self._running = False
+
+        self._logger.info("Startup...")
+
+        return octoprint.plugin.StartupPlugin.on_startup(self, host, port)
 
     def on_after_startup(self):
+        self._target_temperature = None 
+        self._fan_idle_power = self._settings.get_float(['fan', 'pwm', 'idle_power'], merged=True)
+        
         self._temperature_sensor.start()
-        self._logger.info("Started.")
+        self._fan.set_power(self._fan_idle_power)
+        self._heater.turn_off()
+
+        self._frequency = self._settings.get_float(['frequency'], merged=True)
+        self._timer=RepeatedTimer(self._frequency, self._loop, daemon=True)
+        self._timer.start()
+
+        self._running = True
+        
+        self._logger.info("After Startup.")
+
+        return octoprint.plugin.StartupPlugin.on_after_startup(self)
 
     def on_shutdown(self):
-      self._logger.info("Stopping...")
-      self._temperature_sensor.stop()
-      self._logger.info("Stopped.")
-
-    # def on_plugin_enabled(self):
-    #     self._temperature.start()
-    #     self._logger.info("Enabled.")
         
-    # def on_plugin_disabled(self):
-    #     self._temperature.stop()
-    #     self._logger.info("Disabled.")
+        self._timer.cancel()
+        self._temperature_sensor.stop()
+        self._fan.destroy()
+        self._heater.destroy()
+
+        self._logger.info("Shutdown.")
+
+        return octoprint.plugin.ShutdownPlugin.on_shutdown(self)
+
+    def initialize(self):
+        self._logger.info("Initialize....")
+        pass
+    
+    def on_plugin_enabled(self):
+        # self._logger.info("Enabled.")
+        pass
+        
+    def on_plugin_disabled(self):
+        self._logger.info("Disabled.")
 
     ##~~ SettingsPlugin mixin
 
     def get_settings_defaults(self):
-        return dict(frequency=5.0, fan=None, temperature_sensor=dict(ds18b20=dict(frequency=5.0)), heater=None)
+        self._logger.info("Return default settings.")
+        return dict(
+            frequency=5.0, 
+            fan=dict(
+                pwm=dict(
+                    pin=18,
+                    frequency=25000,
+                    idle_power=0
+                )
+            ), 
+            temperature_sensor=dict(
+                ds18b20=dict(
+                    frequency=1.
+                )
+            ), 
+            heater=dict(
+                relay=dict(
+                    pin=17
+                )
+            )
+        )
 
     def get_settings_version(self):
         return 1
+    
+    def on_settings_save(self, data):
+       
+       octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
+       
+       self._logger.info(f"Settings saved: {data}")
 
+       return data;
+
+    def on_settings_load(self):
+        data = octoprint.plugin.SettingsPlugin.on_settings_load(self)
+
+        self._logger.info(f"Settings loaded: {data}")
+
+        return data;
     ##~~ AssetPlugin mixin
 
     def get_assets(self):
@@ -100,7 +198,7 @@ class HeatedchamberPlugin(
       if self._target_temperature is not None:
         target_temperature = self._target_temperature
        
-      parsed_temperatures["C"] = (self._temperature_sensor.temperature(), target_temperature)
+      parsed_temperatures["C"] = (self._temperature_sensor.get_temperature(), target_temperature)
       
       self._logger.info(f"Returning parsed_temperatures={parsed_temperatures}")
       return parsed_temperatures;
