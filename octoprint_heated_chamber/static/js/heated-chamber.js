@@ -7,12 +7,7 @@
 $(function() {
     function HeatedChamberViewModel(parameters) {
         var self = this;
-
-        // assign the injected parameters, e.g.:
-        // self.loginStateViewModel = parameters[0];
-        // self.settingsViewModel = parameters[1];
-
-        // TODO: Implement your plugin's view model here.
+        self.settingsViewModel = parameters[0];
     }
 
     /* view model class, parameters for constructor, container to bind to
@@ -21,9 +16,7 @@ $(function() {
      */
     OCTOPRINT_VIEWMODELS.push({
         construct: HeatedChamberViewModel,
-        // ViewModels your plugin depends on, e.g. loginStateViewModel, settingsViewModel, ...
-        dependencies: [ /* "loginStateViewModel", "settingsViewModel" */ ],
-        // Elements to bind to, e.g. #settings_plugin_HeatedChamber, #tab_plugin_HeatedChamber, ...
-        elements: [ /* ... */ ]
+        dependencies: ["settingsViewModel"],
+        elements: ["#settings_plugin_HeatedChamber"]
     });
 });

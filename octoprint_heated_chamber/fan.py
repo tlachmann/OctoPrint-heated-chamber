@@ -1,14 +1,15 @@
 import pigpio
 
+
 class Fan:
     def set_power(self, power) -> None:
         pass
 
     def get_power(self) -> float:
         pass
-    
+
     def destroy(self) -> None:
-      pass
+        pass
 
 
 class DummyFan(Fan):
@@ -29,28 +30,42 @@ class DummyFan(Fan):
 class PwmFan(Fan):
     """A class the represent a PWM controlled fan"""
 
-    def __init__(self, logger, pwm_pin, pwm_frequency):
+    def __init__(self, logger, pwm_pin, pwm_frequency, idle_power):
         self._logger = logger
         self._frequency = pwm_frequency
         self._pin = pwm_pin
-        self._pi = pigpio.pi() 
+        self._pi = pigpio.pi()
+        self._idle_power = idle_power
 
         if not self._pi.connected:
             self._logger.error("Error connectiong to pigpio")
 
-        self._pi.hardware_PWM(self._pin, pwm_frequency, 0)
-        self._pi.set_PWM_range(self._pin, 100)
+        self.set_power(self._idle_power)
 
     def destroy(self):
         self._pi.stop()
-        
+
+    def get_max_power(self) -> int:
+        return 100
+
+    def get_idle_power(self) -> int:
+        return self._idle_power
+
+    def idle(self):
+        self.set_power(self._idle_power)
+
     def set_power(self, power):
         assert power >= 0
-        assert power <= 1
+        assert power <= 100
 
         self._power = power
-        self._pi.set_PWM_dutycycle(self._pin, int(self._power * 100))
+        self._logger.debug(f"Set power to {self._power}")
+        self._pi.hardware_PWM(
+            self._pin, self._frequency, self._pwm_duty_cycle(self._power)
+        )
 
+    def _pwm_duty_cycle(self, power):
+        return int(power / 100 * 1000000)
 
     def get_power(self):
         return self._power
