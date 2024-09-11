@@ -1,81 +1,96 @@
 <form class="form-horizontal">
 	<div class="control-group">
 		<legend>General options</legend>
-		<label class="control-label">Frequency (0.5 - 25)</label>
+		<label class="control-label">Frequency (0.5 - 60)</label>
 		<div class="controls">
     	<span class="input-append">
-			  <input type="number" step="0.1" min="0.5" max="25" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.frequency">
-				<span class="add-on">s</span>
-			</span>
+			<input type="number" step="0.1" min="0.5" max="60" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.frequency">
+			<span class="add-on">s</span>
+		</span>
 		</div>
 		<br>
-    <label class="control-label">Temperature threshold (0 - 10)</label>
-		<div class="controls">
-      <span class="input-append">
-			  <input type="number" step="0.1" min="0" max="10" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.temperature_threshold">
-        <span class="add-on">&#8451;</span>
-      </span>
-    </div>
-		<br>
-	</div>
 
-  <div class="control-group">
-    <legend>PID algorithm</legend>
-
-    <label class="control-label">Components</label>
-		<div class="controls">
-      <span class="input-append">
-        <input type="number" step="0.1" max="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.kp">
-        <span class="add-on">kp</span>
-      </span>
-      <span class="input-append">
-        <input type="number" step="0.1" max="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.kd">
-        <span class="add-on">kd</span>
-      </span>
-      <span class="input-append">
-        <input type="number" step="0.1" max="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.ki">
-        <span class="add-on">ki</span>
-      </span>
-    </div>
-		<br>
-    <label class="control-label">Sample time</label>
-		<div class="controls">
-      <span class="input-append">
-			  <input type="number" step="0.1" max="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.sample_time">
-				<span class="add-on">s</span>
+		<label class="control-label">Temperature threshold (0 - 10)</label>
+			<div class="controls">
+			<span class="input-append">
+				<input type="number" step="0.1" min="0" max="10" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.temperature_threshold">
+			<span class="add-on">&#8451;</span>
 			</span>
-    </div>
-  </div>
-
-  <div class="control-group">
-    <legend>DS18B20 temperature sensor</legend>
-		<label class="control-label">Frequency (0.5 - 5)s</label>
-		<div class="controls">
-      <span class="input-append">
-			  <input type="number" step="0.1" min="0.5" max="5" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.temperature_sensor.ds18b20.frequency">
-				<span class="add-on">s</span>
-			</span>
-    </div>
+			</div>
 		<br>
-    <label class="control-label">Device ID (28-*)</label>
-    <div class="controls">
-      <input class="input" data-bind="value: settings.plugins.heated_chamber.temperature_sensor.ds18b20.device_id">
-      <span class="help-inline">The device id, can be found via ls -la /sys/bus/w1/devices/28-*</span>
-    </div>
-  </div>
+		</div>
+
+
+
+<div class="control-group">
+<legend>PID algorithm</legend>
+<label class="control-label">Components</label>
+	<div class="controls">
+	<span class="input-append">
+	<input type="number" step="0.1" min="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.kp">
+	<span class="add-on">kp</span>
+	</span>
+	<span class="input-append">
+	<input type="number" step="0.1" min="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.kd">
+	<span class="add-on">kd</span>
+	</span>
+	<span class="input-append">
+	<input type="number" step="0.1" min="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.ki">
+	<span class="add-on">ki</span>
+	</span>
+</div>
+	<br>
+<label class="control-label">Sample time</label>
+	<div class="controls">
+	<span class="input-append">
+			<input type="number" step="0.1" max="0" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.pid.sample_time">
+			<span class="add-on">s</span>
+		</span>
+</div>
+</div>
+
+
+
+<div class="control-group">
+<legend>DS18B20 temperature sensor</legend>
+	<label class="control-label">Frequency (0.5 - 60)s</label>
+	<div class="controls">
+	<span class="input-append">
+			<input type="number" step="0.1" min="0.5" max="60" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.temperature_sensor.ds18b20.frequency">
+			<span class="add-on">s</span>
+		</span>
+</div>
+	<br>
+<label class="control-label">Device ID (28-*)</label>
+<div class="controls">
+	<input class="input" data-bind="value: settings.plugins.heated_chamber.temperature_sensor.ds18b20.device_id">
+	<span class="help-inline">The device id, can be found via ls -la /sys/bus/w1/devices/28-*</span>
+</div>
+</div>
+
+
 
   <div class="control-group">
-    <legend>PWM fan</legend>
+    <legend>PWM Heater fan</legend>
 		<label class="control-label">PWM Pin</label>
 		<div class="controls">
-			<input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.fan.pwm.pin">
+			<input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.heaterfan.pwm.pin">
 		</div>
 		<br>
+
+		<label class="control-label">Hardware PWM Fan</label>
+		<div class="controls">
+			<select data-bind="value: settings.plugins.heated_chamber.heaterfan.pwm.hardware_PWM_enabled" class="input-medium" title="Hardware PWM Fan">
+				<option value="0">Software PWM</option>
+				<option value="1">Hardware PWM</option>
+			</select>
+			<span class="help-inline">Select '1' if Fan controlled via HardwarePWM, if Fan is controlled by Mosfet, choose '0'</span>
+		</div>
 
 		<label class="control-label">PWM Frequency (Hz)</label>
 		<div class="controls">
       <span class="input-append">
-			  <input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.fan.pwm.frequency">
+			  <input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.heaterfan.pwm.frequency">
       	<span class="add-on">Hz</span>
 			</span>
 		</div>
@@ -83,27 +98,69 @@
 
 		<label class="control-label">Idle power (0-100)</label>
 		<div class="controls">
-			<input type="number" step="1" min="0" max="100" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.fan.pwm.idle_power">
+			<input type="number" step="1" min="0" max="100" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.heaterfan.pwm.idle_power">
 		</div>
 		<br>
   </div>
 
-   <div class="control-group">
+   	<div class="control-group">
     <legend>Relay heater</legend>
 
     <label class="control-label">Pin</label>
+	<div class="controls">
+		<input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.heater.relay.pin">
+	</div>
+	<br>
+
+    <label class="control-label">Relay mode</label>
+	<div class="controls">
+		<select data-bind="value: settings.plugins.heated_chamber.heater.relay.relay_mode" class="input-medium" title="Relay mode">
+			<option value="0">Active low</option>
+			<option value="1">Active high</option>
+		</select>
+	</div>
+	<br>
+
+
+    <label class="control-label">PWM Heater Mode</label>
+	<div class="controls">
+		<select data-bind="value: settings.plugins.heated_chamber.heater.relay.heaterPWMMode" class="input-medium" title="PWM Heater Mode">
+			<option value="0">if Heater is controlled by Relay</option>
+			<option value="1">if Heater is PWM controlled</option>
+		</select>
+	</div>
+	<br>
+
+  <div class="control-group">
+    <legend>PWM Cooling fan</legend>
+		<label class="control-label">PWM Pin</label>
 		<div class="controls">
-			<input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.heater.relay.pin">
+			<input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.coolerfan.pwm.pin">
+		</div>
+		<br>
+		<label class="control-label">Hardware PWM Fan</label>
+		<div class="controls">
+			<select data-bind="value: settings.plugins.heated_chamber.coolerfan.pwm.hardware_PWM_enabled" class="input-medium" title="Hardware PWM Fan">
+				<option value="0">Software PWM</option>
+				<option value="1">Hardware PWM</option>
+			</select>
+			<span class="help-inline">Select '1' if Fan controlled via HardwarePWM, if Fan is controlled by Mosfet, choose '0'</span>
+		</div>
+
+		<label class="control-label">PWM Frequency (Hz)</label>
+		<div class="controls">
+      <span class="input-append">
+			  <input type="number" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.coolerfan.pwm.frequency">
+      	<span class="add-on">Hz</span>
+			</span>
 		</div>
 		<br>
 
-    <label class="control-label">Relay mode</label>
+		<label class="control-label">Idle power (0-100)</label>
 		<div class="controls">
-      <select data-bind="value: settings.plugins.heated_chamber.heater.relay.relay_mode" class="input-medium" title="Relay mode">
-        <option value="0">Active low</option>
-        <option value="1">Active high</option>
-      </select>
+			<input type="number" step="1" min="0" max="100" class="input-mini text-right" data-bind="value: settings.plugins.heated_chamber.coolerfan.pwm.idle_power">
 		</div>
 		<br>
+  </div>
   </div>
 </form>

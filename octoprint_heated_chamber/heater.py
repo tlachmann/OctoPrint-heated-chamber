@@ -32,10 +32,11 @@ class Heater:
 
 
 class RelayHeater(Heater):
-    def __init__(self, logger, pin, relay_mode) -> None:
+    def __init__(self, logger, pin, relay_mode, heaterPWMMode) -> None:
         super().__init__(logger)
         self._pin = pin
         self._relay_mode = relay_mode
+        self._heaterPWMMode = heaterPWMMode
 
         if relay_mode == RelayMode.ACTIVE_HIGH:
             self._on_value = 1
@@ -45,9 +46,15 @@ class RelayHeater(Heater):
             self._off_value = 1
 
         self._pi = pigpio.pi()
+        if not self._pi.connected:
+            self._logger.error("Error connectiong to pigpio")
 
         self._pi.set_mode(self._pin, pigpio.OUTPUT)
-        self._pi.set_pull_up_down(self._pin, pigpio.PUD_UP)
+        #self._pi.set_pull_up_down(self._pin, pigpio.PUD_UP)
+        
+        if self._heaterPWMMode:
+            self._pi.set_PWM_frequency(self._pin,  200)
+            self._pi.set_PWM_range(self._pin, 100)
 
     def turn_on(self) -> None:
         self._pi.write(self._pin, self._on_value)
@@ -64,3 +71,16 @@ class RelayHeater(Heater):
 
     def destroy(self) -> None:
         self._pi.stop()
+
+    def set_power(self, power):
+        #assert power >= 0
+        #assert power <= 100
+
+        self._power = power
+        self._logger.debug(f"Set power to {self._power}")
+        self._pi.set_PWM_dutycycle(
+            self._pin, self._power
+        )
+
+    def get_power(self):
+        return self._power

@@ -23,7 +23,7 @@ class Ds18b20(TemperatureSensor):
 
         self._running = False
         self._temperature = None
-        self._device_file = f"/sys/bus/w1/devices/{device_id}/w1_slave"
+        self._device_file = f"/mnt/1wire/{device_id}/temperature"
         self._timer = RepeatedTimer(
             self._update_frequency, self._loop, condition=self.is_running, daemon=True
         )
@@ -33,41 +33,60 @@ class Ds18b20(TemperatureSensor):
         )
 
     def is_running(self) -> bool:
-        return self._running
+        return self._timer.is_alive()
 
     def get_temperature(self) -> float:
-        return self._temperature
+        try:
+            temp_transmit = None
+            #self._logger.debug("get_temperature() 1 temp_transmit %s", temp_transmit)
+            temp_transmit = float(self._temperature)
+            #self._logger.debug("get_temperature() 2 temp_transmit %s", temp_transmit)
+            #self._logger.debug("get_temperature() 3 self._temperature %s", self._temperature)
+
+            #self._temperature = None
+            #self._logger.debug("get_temperature() 4 temp_transmit %s", temp_transmit)
+            #self._logger.debug("get_temperature() 5 self._temperature %s", self._temperature)
+            return temp_transmit
+        except Exception as e:
+            self._logger.warn("get_temperature() X Ds18b20 sensor get_temp %s", e)
+            return -1
 
     def start(self) -> None:
         self._running = True
         self._timer.start()
-        self._logger.debug("Ds18b20 sensor started")
+        self._logger.debug("Tempsensor start() Ds18b20 sensor started")
 
     def stop(self) -> None:
         self._timer.cancel()
         self._running = False
-        self._logger.debug("Ds18b20 sensor stopped")
+        self._logger.debug("Tempsesnor Stop() Ds18b20 sensor stopped")
 
     def _read_temp_raw(self):
+        lines = ""
         f = open(self._device_file, "r")
-        lines = f.readlines()
+        lines = f.readline()
         f.close()
         return lines
 
     def _loop(self):
-        lines = self._read_temp_raw()
-        while lines[0].strip()[-3:] != "YES":
-            time.sleep(0.2)
-            lines = self._read_temp_raw()
+        self._temperature = None
+        try:
+            if self._running:
+                self._temperature = float(self._read_temp_raw())
+                #self._logger.debug("Tempsensor Loop 1: Raw temperature: %s", self._temperature)
+            else: 
+                #self._logger.debug("Tempsensor Loop 2: Tempsensor stopped running: %s", self._temperature)
+                self._temperature=None
+        except Exception as e:
+            self._logger.warn("Tempsensor Loop X: Ds18b20 sensor loop Exception %s", e)
 
-        equals_pos = lines[1].find("t=")
-        if equals_pos != -1:
-            temp_string = lines[1][equals_pos + 2 :]
-            self._temperature = float(temp_string) / 1000.0
+            
+
+        
 
 
 def list_ds18b20_devices():
-    base_dir = "/sys/bus/w1/devices/"
+    base_dir = "/mnt/1wire/"
     folders = glob.glob(base_dir + "28*")
     device_names = list(map(lambda path: basename(path), folders))
 

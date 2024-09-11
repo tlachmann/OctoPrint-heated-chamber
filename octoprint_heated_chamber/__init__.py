@@ -1,16 +1,17 @@
 # coding=utf-8
 from __future__ import absolute_import
-from octoprint.util import RepeatedTimer
+from octoprint.util import RepeatedTimer, ResettableTimer
 import octoprint.plugin
 from simple_pid import PID
 
 import flask
 from flask_login import current_user
 
-from octoprint_heated_chamber.fan import PwmFan
+from octoprint_heated_chamber.fan import softwarePwmFan, hardwarePwmFan
 from octoprint_heated_chamber.temperature import Ds18b20, list_ds18b20_devices
 from octoprint_heated_chamber.heater import RelayHeater, RelayMode
 
+import threading
 
 class HeatedChamberPlugin(
     octoprint.plugin.StartupPlugin,
@@ -20,10 +21,16 @@ class HeatedChamberPlugin(
     octoprint.plugin.SimpleApiPlugin,
     octoprint.plugin.TemplatePlugin,
 ):
+    _target_temperature = None
+    _current_temperature = None
+    _timer = None
+    _event_object = threading.Event()
+    
     ##~~ StartupPlugin mixin
 
     def on_after_startup(self):
-        self._fan = None
+        self._heaterfan = None
+        self._coolerfan = None
         self._heater = None
         self._temperature_sensor = None
         self._pid = None
@@ -32,6 +39,8 @@ class HeatedChamberPlugin(
         self._temperature_threshold = None
         self._target_temperature = None
         self._timer = None
+        self._heaterPWMMode = False
+        self._event_object = threading.Event()
 
         self.reset()
         return octoprint.plugin.StartupPlugin.on_after_startup(self)
@@ -47,8 +56,10 @@ class HeatedChamberPlugin(
             self._temperature_sensor.stop()
             self._temperature_sensor = None
 
-        if self._fan is not None:
-            self._fan.destroy()
+        if self._heaterfan is not None:
+            self._heaterfan.destroy()
+        if self._coolerfan is not None:
+            self._coolerfan.destroy()
 
         if self._heater is not None:
             self._heater.destroy()
@@ -65,11 +76,12 @@ class HeatedChamberPlugin(
             frequency=1.0,
             temperature_threshold=2.5,
             pid=dict(kp=-5, kd=-0.05, ki=-0.02, sample_time=5),
-            fan=dict(pwm=dict(pin=18, frequency=25000, idle_power=15)),
+            heaterfan=dict(pwm=dict(pin=24, frequency=25000, idle_power=15, hardware_PWM_enabled=0)),
             temperature_sensor=dict(
                 ds18b20=dict(frequency=1.0, device_id="28-0000057065d7")
             ),
-            heater=dict(relay=dict(pin=23, relay_mode=0)),
+            heater=dict(relay=dict(pin=25, relay_mode=0, heaterPWMMode=0)),
+            coolerfan=dict(pwm=dict(pin=19, frequency=25000, idle_power=15, hardware_PWM_enabled=1)),
         )
 
     def get_settings_version(self):
@@ -89,6 +101,8 @@ class HeatedChamberPlugin(
         self._logger.debug(f"Settings loaded: {data}")
 
         return data
+
+
 
     ##~~ AssetPlugin mixin
 
@@ -142,21 +156,59 @@ class HeatedChamberPlugin(
     ##~~ temperatures.received hook
 
     def enrich_temperatures(self, comm_instance, parsed_temperatures, *args, **kwargs):
-        self._logger.debug(f"Original parsed_temperatures={parsed_temperatures}")
+        try:
+            #self._logger.debug(f"Original parsed_temperatures={parsed_temperatures}")
+            target_temperature = 0  # 0 means off for the preheat plugin
+            if self._target_temperature is not None:
+                target_temperature = self._target_temperature
+            #else:
+            #    target_temperature = 0
+            #self._logger.debug(f"Enriched Callback self._temperature_sensor.is_running()={self._temperature_sensor.is_running()}")
+            if self._current_temperature is not None:
+                chamber_temp = self._current_temperature
+            elif self._temperature_sensor.is_running() and self._current_temperature is None:
+                self._event_set = self._event_object.wait(1.5)
+                if self._event_set:
+                    chamber_temp = self._current_temperature
+                else:                    
+                    return   
+            elif not self._temperature_sensor.is_running():
+                chamber_temp=-1
+                
+            parsed_temperatures["C"] = (
+                chamber_temp,
+                target_temperature,
+            )
 
-        target_temperature = 0  # 0 means off for the preheat plugin
-        if self._target_temperature is not None:
-            target_temperature = self._target_temperature
 
-        parsed_temperatures["C"] = (
-            self._temperature_sensor.get_temperature(),
-            target_temperature,
-        )
+            #self._logger.debug(f"Enrich Callback: self._timer={self._timer}")
+            if not self._timer.is_alive():
+                self._logger.warn(f"Enrich Callback: self._timer not alive, timer-reset")
+                self.reset()
+            
+            
 
-        self._logger.debug(f"Enriched parsed_temperatures={parsed_temperatures}")
-
-        return parsed_temperatures
-
+            return parsed_temperatures
+        
+        except AttributeError as e:
+            self._logger.warn(f"AttributeError: Plugin initilaization finished?: {e}")
+            '''parsed_temperatures["C"] = (
+                -2,
+                -2,
+            )
+            return parsed_temperatures'''
+        
+        except TypeError as e:
+            self._logger.warn(f"AttributeError: Plugin initilaization finished?: {e}")
+            '''parsed_temperatures["C"] = (
+                -3,
+                -3,
+            )
+            return parsed_temperatures'''
+            
+        except Exception as ex: self._logger.warn(f"Enrich Exception: {ex}")
+        
+        
     ##~~ gcode.queuing hook
 
     def detect_m141_m191(
@@ -173,69 +225,149 @@ class HeatedChamberPlugin(
     ):
         # chamber temp can be set either via M141 or M191
         if gcode and (gcode == "M141" or gcode == "M191"):
-            target_temperature = int(cmd[cmd.index("S") + 1 :])
+            target_temperature = float(cmd[cmd.index("S") + 1 :])
 
             # 0 means no target temp
             if target_temperature == 0:
                 target_temperature = None
 
-            self._logger.debug(f"Detected target_temperature={target_temperature}")
+            self._logger.info(f"Detected target_temperature={target_temperature}")
             self.set_target_temperature(target_temperature)
 
             return None
 
     ##~~ Plugin logic
 
-    def _loop(self) -> None:
-        target_temperature = self._target_temperature
-
-        if target_temperature is not None:
-            current_temperature = self._temperature_sensor.get_temperature()
-            new_value = self._pid(current_temperature)
-
+    def _loop(self):
+        try:
+            target_temperature = self._target_temperature
+            #self._logger.debug(f"Loop: target_temperature={target_temperature}, self._target_temperature={self._target_temperature}")+
+            self._event_object.clear()
+            self._current_temperature = None
+            self._current_temperature = self._temperature_sensor.get_temperature()
+            self._event_object.set()
             self._logger.debug(
-                f"current_temperature={current_temperature}, target_temperature={target_temperature}, new_value={new_value}, pid={self._pid.components}"
+                f"LOOP: current_temperature={self._current_temperature }, target_temperature={target_temperature}"
             )
+                           
+            if target_temperature is not None: # Running Heating cooling Logic
+                new_value = self._pid(self._current_temperature )
 
-            if not self._heater.state() and current_temperature < (
-                target_temperature - self._temperature_threshold
-            ):
-                self._heater.turn_on()
-                self._pid.set_auto_mode(False)
-            elif self._heater.state() and current_temperature > (
-                target_temperature + self._temperature_threshold
-            ):
-                self._heater.turn_off()
-                self._pid.set_auto_mode(True)
+                #self._logger.debug(
+                #    f"LOOP new_value={new_value}, pid={self._pid}"
+                #)
+                #self._logger.debug(
+                #    f"LOOP: Pre FAN set power{self._heaterfan.get_power()}"
+                #)
+                
+                #HeaterFan: Min to Idle, above idle Fanspeed is set by PID result, No Heater Fan Off
+                if 0.0 < new_value < self._pwm_heaterfan_idle_power:
+                    self._heaterfan.set_power(self._pwm_heaterfan_idle_power)
+                elif self._pwm_heaterfan_idle_power < new_value:
+                    self._heaterfan.set_power(new_value)
+                    
+                #self._logger.debug(
+                #    f"LOOP: new_value={new_value}, Post Fan Set ={self._heaterfan.get_power()}"
+                #)
+                #self._logger.debug(f"LOOP: Heater State:{self._heater.state()}, HeeaterFan Power={self._heaterfan.get_power()}")
+                
+                if not self._heaterPWMMode:
+                    if not self._heater.state() and self._current_temperature  < (
+                        target_temperature - self._temperature_threshold
+                    ):
+                        self._heater.turn_on()
+                        #self._pid.set_auto_mode(False)
+                    elif self._heater.state() and self._current_temperature  > (
+                        target_temperature + self._temperature_threshold
+                    ):
+                        self._heater.turn_off()
+                        #self._pid.set_auto_mode(True)
+                else:
+                    if new_value > 0:
+                        if new_value > 100: 
+                            pwmHeaterValue = 100
+                        else: 
+                            pwmHeaterValue = new_value
+                        self._heater.set_power(new_value)
+                    
+            else:
+                if not self._heaterPWMMode:
+                    self._heater.turn_off()
+                else:
+                    self._heater.set_power(0)
+                    
+                self._heaterfan.set_power(0)
+                
+            self._logger.info(f"LOOP: Heater State:{self._heater.state()}, Fan Power={self._heaterfan.get_power()}")
+            return
 
-            self._fan.set_power(new_value)
-        else:
+        except Exception as ex:
             self._heater.turn_off()
-            self._fan.idle()
+            self._logger.warn(f"_loop Exception: {ex}")
+            if self._timer.is_alive():
+                self._logger.debug(f"_loop Exception: self._timer is alive")
+            else:
+                self._logger.warn(f"_loop Exception: self._temperature_sensor not alive, function-reset")
+                self.reset()
+
 
     def reset(self):
         # Fan
-        if self._fan is not None:
-            self._fan.idle()
-            self._fan.destroy()
+        if self._heaterfan is not None:
+            self._heaterfan.idle()
+            self._heaterfan.destroy()
+                       
+        pwm_heaterfan_pin = self._settings.get_int(["heaterfan", "pwm", "pin"], merged=True)
+        pwm_heaterfan_frequency = self._settings.get_int(
+            ["heaterfan", "pwm", "frequency"], merged=True
+        )  
+        self._pwm_heaterfan_idle_power = self._settings.get_float(
+            ["heaterfan", "pwm", "idle_power"], merged=True
+        )
+        self._pwm_heaterfan_hardware_PWM_enabled = self._settings.get_int(
+            ["heaterfan", "pwm", "hardware_PWM_enabled"], merged=True
+        )
 
-        pwm_fan_pin = self._settings.get_int(["fan", "pwm", "pin"], merged=True)
-        pwm_fan_frequency = self._settings.get_int(
-            ["fan", "pwm", "frequency"], merged=True
-        )
-        pwm_fan_idle_power = self._settings.get_float(
-            ["fan", "pwm", "idle_power"], merged=True
-        )
-        self._fan = PwmFan(
-            self._logger, pwm_fan_pin, pwm_fan_frequency, pwm_fan_idle_power
-        )
-        self._fan.idle()
+        if self._pwm_heaterfan_hardware_PWM_enabled:
+            self._heaterfan = hardwarePwmFan(
+                self._logger, pwm_heaterfan_pin, pwm_heaterfan_frequency, self._pwm_heaterfan_idle_power
+            )
+        else:
+            self._heaterfan = softwarePwmFan(
+                self._logger, pwm_heaterfan_pin, pwm_heaterfan_frequency, self._pwm_heaterfan_idle_power
+            )
+        self._heaterfan.idle()
 
+        if self._coolerfan is not None:
+            self._coolerfan.idle()
+            self._coolerfan.destroy()
+            
+        pwm_coolerfan_pin = self._settings.get_int(["coolerfan", "pwm", "pin"], merged=True)
+        pwm_coolerfan_frequency = self._settings.get_int(
+            ["coolerfan", "pwm", "frequency"], merged=True
+        )
+        self._pwm_coolerfan_idle_power = self._settings.get_float(
+            ["coolerfan", "pwm", "idle_power"], merged=True
+        )
+        self._pwm_coolerFan_hardware_PWM_enabled = self._settings.get_int(
+            ["coolerfan", "pwm", "hardware_PWM_enabled"], merged=True
+        )
+        if self._pwm_coolerFan_hardware_PWM_enabled:
+            self._coolerfan = hardwarePwmFan(
+                self._logger, pwm_coolerfan_pin, pwm_coolerfan_frequency, self._pwm_coolerfan_idle_power
+            )
+        else:
+            self._coolerfan = softwarePwmFan(
+                self._logger, pwm_coolerfan_pin, pwm_coolerfan_frequency, self._pwm_coolerfan_idle_power
+            )
+            
+        self._coolerfan.idle()        
+    
         # Temperature sensor
         if self._temperature_sensor is not None:
             self._temperature_sensor.stop()
 
-        temperature_sensor_ds18b20_frequency = self._settings.get_int(
+        temperature_sensor_ds18b20_frequency = self._settings.get_float(
             ["temperature_sensor", "ds18b20", "frequency"], merged=True
         )
         temperature_sensor_ds18b20_device_id = self._settings.get(
@@ -258,7 +390,11 @@ class HeatedChamberPlugin(
         heater_relay_mode = RelayMode(
             self._settings.get_int(["heater", "relay", "relay_mode"], merged=True)
         )
-        self._heater = RelayHeater(self._logger, heater_pin, heater_relay_mode)
+        self._heaterPWMMode = self._settings.get_int(
+            ["heater", "relay", "heaterPWMMode"], merged=True
+        )
+        
+        self._heater = RelayHeater(self._logger, heater_pin, heater_relay_mode, self._heaterPWMMode)
         self._heater.turn_off()
 
         # PID
@@ -274,8 +410,8 @@ class HeatedChamberPlugin(
             self._pid.Kd = pid_ki
             self._pid.sample_time = pid_sample_time
             self._pid.output_limits = (
-                self._fan.get_idle_power(),
-                self._fan.get_max_power(),
+                -100,
+                100,
             )
         else:
             self._pid = PID(
@@ -284,21 +420,31 @@ class HeatedChamberPlugin(
                 pid_ki,
                 sample_time=pid_sample_time,
             )
-
+            self._pid.output_limits = (
+                -100,
+                100,
+            )
+        self._logger.debug(
+            f"RESET: self._target_temperature={self._target_temperature}"
+        )
         if self._target_temperature is not None:
             self._pid.setpoint = self._target_temperature
             self._pid.set_auto_mode(True)
         else:
-            self._pid.set_auto_mode(False)
+            self._pid.set_auto_mode(True)
 
         # Timer
         self._frequency = self._settings.get_float(["frequency"], merged=True)
-        if self._timer is not None:
+        if self._timer:
             self._timer.cancel()
             self._timer = None
-
-        self._timer = RepeatedTimer(self._frequency, self._loop, daemon=True)
+            
+        self._logger.debug(f"RESET: pre Timer setup self._timer={self._timer}")
+        self._timer = RepeatedTimer(self._frequency, self._loop, args=None, kwargs=None, daemon=True) #, run_first=True , on_reset=self.reset
+        self._logger.debug(f"RESET: post Timer setup self._timer={self._timer}")
         self._timer.start()
+        self._logger.debug(f"RESET: pre start timer self._timer={self._timer}")
+
 
         # Misc
         self._temperature_threshold = self._settings.get_float(
@@ -313,9 +459,17 @@ class HeatedChamberPlugin(
 
         if self._target_temperature is not None:
             self._pid.setpoint = self._target_temperature
+            self._logger.debug(
+                f"Set PID Setpoint: {self._target_temperature}"
+             )
             self._pid.set_auto_mode(True)
         else:
-            self._pid.set_auto_mode(False)
+            self._pid.set_auto_mode(True)
+            
+        self._logger.debug(
+            f"self._pid: {self._pid}"
+            )
+
 
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
