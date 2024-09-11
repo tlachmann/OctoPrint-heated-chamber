@@ -1,12 +1,15 @@
 # OctoPrint-heated-chamber
 
-rafactored the original Plugin, for most fail safe temperature sensor handling due to risc of damage or fire by uncontrolled heater.
+redesigned the original Plugin by filosganga, for most fail safe temperature sensor handling due to risc of damage or fire by uncontrolled heater.
 
 Also added:
 - capability for seperate heating and cooling fan.
 - both fans can be seperatly soft or hardwarePWM conttolled.
 - Heater with Relay and Mosfet PWM controlled heating (PID controlled)
 
+- for DS18B20 Temperatursensor, currently the original Kernel based 1Wire implementation is replaced with the 1wire OWFS.
+
+  
 
 
 
