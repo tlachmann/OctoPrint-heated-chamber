@@ -1,5 +1,15 @@
 # OctoPrint-heated-chamber
 
+rafactored the originak Plugin for most fail safe temperature sensor handling due to risc of damage or fire by uncontrolled heater.
+
+Also added:
+- capability for seperate heating and cooling fan.
+- both fans can be seperatly soft or hardwarePWM conttolled.
+- Heater with Relay and Mosfet PWM controlled heating (PID controlled)
+
+
+
+
 This plugin controls the enclosure temperature via a temperature sensor, a heater and the enclosure air extraction fan.
 
 At the moment it only supports those:
