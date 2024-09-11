@@ -1,6 +1,6 @@
 # OctoPrint-heated-chamber
 
-rafactored the originak Plugin for most fail safe temperature sensor handling due to risc of damage or fire by uncontrolled heater.
+rafactored the original Plugin, for most fail safe temperature sensor handling due to risc of damage or fire by uncontrolled heater.
 
 Also added:
 - capability for seperate heating and cooling fan.
