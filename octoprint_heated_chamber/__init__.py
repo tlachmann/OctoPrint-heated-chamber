@@ -1,5 +1,6 @@
 # coding=utf-8
 from __future__ import absolute_import
+from octoprint.events import eventManager, Events
 from octoprint.util import RepeatedTimer, ResettableTimer
 import octoprint.plugin
 from simple_pid import PID
@@ -20,12 +21,14 @@ class HeatedChamberPlugin(
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.SimpleApiPlugin,
     octoprint.plugin.TemplatePlugin,
+    octoprint.plugin.EventHandlerPlugin,
 ):
     _target_temperature = None
     _current_temperature = None
     _timer = None
     _event_object = threading.Event()
-    
+    print_in_progress = None
+
     ##~~ StartupPlugin mixin
 
     def on_after_startup(self):
@@ -41,6 +44,8 @@ class HeatedChamberPlugin(
         self._timer = None
         self._heaterPWMMode = False
         self._event_object = threading.Event()
+        
+        self.print_in_progress = None
 
         self.reset()
         return octoprint.plugin.StartupPlugin.on_after_startup(self)
@@ -76,7 +81,7 @@ class HeatedChamberPlugin(
             frequency=1.0,
             temperature_threshold=2.5,
             pid=dict(kp=-5, kd=-0.05, ki=-0.02, sample_time=5),
-            heaterfan=dict(pwm=dict(pin=24, frequency=25000, idle_power=15, hardware_PWM_enabled=0)),
+            heaterfan=dict(pwm=dict(pin=24, frequency=200, idle_power=15, hardware_PWM_enabled=0)),
             temperature_sensor=dict(
                 ds18b20=dict(frequency=1.0, device_id="28-0000057065d7")
             ),
@@ -167,12 +172,13 @@ class HeatedChamberPlugin(
             if self._current_temperature is not None:
                 chamber_temp = self._current_temperature
             elif self._temperature_sensor.is_running() and self._current_temperature is None:
-                self._event_set = self._event_object.wait(1.5)
+                self._event_set = self._event_object.wait(5)
                 if self._event_set:
                     chamber_temp = self._current_temperature
                 else:                    
                     return   
             elif not self._temperature_sensor.is_running():
+                self._logger.debug(f"Enriched Callback self._temperature_sensor running? = {self._temperature_sensor.is_running()}")
                 chamber_temp=-1
                 
             parsed_temperatures["C"] = (
@@ -181,7 +187,7 @@ class HeatedChamberPlugin(
             )
 
 
-            #self._logger.debug(f"Enrich Callback: self._timer={self._timer}")
+            self._logger.debug(f"Enrich Callback: self._timer={self._timer}")
             if not self._timer.is_alive():
                 self._logger.warn(f"Enrich Callback: self._timer not alive, timer-reset")
                 self.reset()
@@ -469,6 +475,56 @@ class HeatedChamberPlugin(
         self._logger.debug(
             f"self._pid: {self._pid}"
             )
+
+
+
+    # ~~ EventPlugin mixin
+    def on_event(self, event, payload):
+        if event == Events.CONNECTED:
+            self._logger.debug("on_event: Events.CONNECTED")
+            #self.conneted = True
+            #self.update_ui()
+
+        #if event == Events.CLIENT_OPENED:
+            # self.update_ui()
+        
+        if event == Events.PRINT_RESUMED:
+            self._logger.debug("on_event: Events.PRINT_RESUMED. previous status: self.print_in_progress= %s", self.print_in_progress)
+            self.print_in_progress = True
+             # self.update_ui()
+           
+        if event == Events.PRINT_STARTED:
+            self._logger.debug("on_event: Events.PRINT_STARTED. previous status: self.print_in_progress= %s", self.print_in_progress)
+            self.print_in_progress = True
+            #self.run_tasks()
+            #self.update_ui()
+
+        elif event == Events.PRINT_DONE:
+            self._logger.debug("on_event: Events.PRINT_DONE. previous status: self.print_in_progress= %s", self.print_in_progress)
+            self.print_in_progress = False
+            self.set_target_temperature(0.0)
+            #self.update_ui()
+
+        elif event in (Events.PRINT_CANCELLED, Events.PRINT_FAILED):
+            self._logger.debug("on_event: Events.PRINT_CANCELLED or Events.PRINT_FAILED. previous status: self.print_in_progress= %s", self.print_in_progress)
+            self.print_in_progress = False
+            self.set_target_temperature(0.0)
+            #self.run_tasks()
+
+        if event in (Events.ERROR, Events.DISCONNECTED):
+            self._logger.debug("on_event: Events.ERROR or Events.DISCONNECTED. previous status: self.print_in_progress= %s", self.print_in_progress)
+            self._logger.info("Detected Error or Disconnect in %s will call listeners for shutdown_on_error!", event)
+            self.print_in_progress = False
+            self.set_target_temperature(0.0)
+            #self.run_tasks()
+
+        if event == Events.PRINTER_STATE_CHANGED:
+            if "error" in payload["state_string"].lower():
+                self._logger.debug("on_event: Events.PRINTER_STATE_CHANGED. previous status: self.print_in_progress= %s", self.print_in_progress)
+                self._logger.info("Detected Error in %s id: %s state: %s  will call listeners for shutdown_on_error!", event, payload["state_id"], payload["state_string"])
+                self.print_in_progress = False
+                self.set_target_temperature(0.0)
+                #self.run_tasks()
 
 
 

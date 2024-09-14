@@ -3,6 +3,7 @@ import glob
 import time
 from os.path import basename
 from octoprint.util import RepeatedTimer
+import threading
 
 
 class TemperatureSensor:
@@ -20,6 +21,8 @@ class Ds18b20(TemperatureSensor):
         self._logger = logger
         self._update_frequency = update_frequency
         self._device_id = device_id
+        
+        self._tempSens_event_object = threading.Event()
 
         self._running = False
         self._temperature = None
@@ -35,18 +38,23 @@ class Ds18b20(TemperatureSensor):
     def is_running(self) -> bool:
         return self._timer.is_alive()
 
-    def get_temperature(self) -> float:
+    def get_temperature(self):
         try:
-            temp_transmit = None
+            self._event_set = self._tempSens_event_object.wait(5)
+            if self._event_set: # and self._temperature is float:
+                return self._temperature
+            else:                    
+                return None
+            #temp_transmit = None
             #self._logger.debug("get_temperature() 1 temp_transmit %s", temp_transmit)
-            temp_transmit = float(self._temperature)
+            #temp_transmit = self._temperature
             #self._logger.debug("get_temperature() 2 temp_transmit %s", temp_transmit)
             #self._logger.debug("get_temperature() 3 self._temperature %s", self._temperature)
 
             #self._temperature = None
             #self._logger.debug("get_temperature() 4 temp_transmit %s", temp_transmit)
             #self._logger.debug("get_temperature() 5 self._temperature %s", self._temperature)
-            return temp_transmit
+            #return temp_transmit
         except Exception as e:
             self._logger.warn("get_temperature() X Ds18b20 sensor get_temp %s", e)
             return -1
@@ -69,10 +77,12 @@ class Ds18b20(TemperatureSensor):
         return lines
 
     def _loop(self):
+        self._tempSens_event_object.clear()
         self._temperature = None
         try:
-            if self._running:
+            if self._running and self._read_temp_raw() is not None:
                 self._temperature = float(self._read_temp_raw())
+                self._tempSens_event_object.set()
                 #self._logger.debug("Tempsensor Loop 1: Raw temperature: %s", self._temperature)
             else: 
                 #self._logger.debug("Tempsensor Loop 2: Tempsensor stopped running: %s", self._temperature)

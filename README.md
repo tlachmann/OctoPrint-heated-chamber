@@ -10,7 +10,10 @@ Also added:
 - for DS18B20 Temperatursensor, currently the original Kernel based 1Wire implementation is replaced with the 1wire OWFS.
 
   
+Need to install:
 
+sudo apt-get update
+sudo apt-get install pigpio python-pigpio python3-pigpio
 
 
 This plugin controls the enclosure temperature via a temperature sensor, a heater and the enclosure air extraction fan.

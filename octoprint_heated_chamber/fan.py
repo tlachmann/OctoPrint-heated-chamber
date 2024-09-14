@@ -34,20 +34,20 @@ class softwarePwmFan(Fan):
         self._logger = logger
         self._frequency = pwm_frequency
         self._pin = pwm_pin
-        self._pi = pigpio.pi()
+        self._piSpwm = pigpio.pi()
         self._idle_power = idle_power
-        self._heaterPWMMode = heaterPWMMode
+        #self._heaterPWMMode = heaterPWMMode
 
-        if not self._pi.connected:
+        if not self._piSpwm.connected:
             self._logger.error("Error connectiong to pigpio")
-        self._pi.set_mode(self._pin, pigpio.OUTPUT) 
-        self._pi.set_PWM_frequency(self._pin,  self._frequency)
-        self._pi.set_PWM_range(self._pin, 100)
+        self._piSpwm.set_mode(self._pin, pigpio.OUTPUT) 
+        self._piSpwm.set_PWM_frequency(self._pin,  self._frequency)
+        self._piSpwm.set_PWM_range(self._pin, 100)
 
         self.set_power(self._idle_power)
 
     def destroy(self):
-        self._pi.stop()
+        self._piSpwm.stop()
 
     def get_max_power(self) -> int:
         return 100
@@ -64,7 +64,7 @@ class softwarePwmFan(Fan):
 
         self._power = power
         self._logger.debug(f"Set power to {self._power}")
-        self._pi.set_PWM_dutycycle(
+        self._piSpwm.set_PWM_dutycycle(
             self._pin, self._power
         )
 
@@ -79,16 +79,16 @@ class hardwarePwmFan(Fan):
         self._logger = logger
         self._frequency = pwm_frequency
         self._pin = pwm_pin
-        self._pi = pigpio.pi()
+        self._piHpwm = pigpio.pi()
         self._idle_power = idle_power
 
-        if not self._pi.connected:
+        if not self._piHpwm.connected:
             self._logger.error("Error connectiong to pigpio")
 
         self.set_power(self._idle_power)
 
     def destroy(self):
-        self._pi.stop()
+        self._piHpwm.stop()
 
     def get_max_power(self) -> int:
         return 100
@@ -105,7 +105,7 @@ class hardwarePwmFan(Fan):
 
         self._power = power
         self._logger.debug(f"Set power to {self._power}")
-        self._pi.hardware_PWM(
+        self._piHpwm.hardware_PWM(
             self._pin, self._frequency, self._pwm_duty_cycle(self._power)
         )
 
