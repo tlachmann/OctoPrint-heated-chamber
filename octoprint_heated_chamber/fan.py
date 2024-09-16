@@ -104,7 +104,7 @@ class hardwarePwmFan(Fan):
         assert power <= 100
 
         self._power = power
-        self._logger.debug(f"Set power to {self._power}")
+        self._logger.debug(f"Fan power to {self._power}")
         self._piHpwm.hardware_PWM(
             self._pin, self._frequency, self._pwm_duty_cycle(self._power)
         )
