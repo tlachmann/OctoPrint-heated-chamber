@@ -1,6 +1,5 @@
 # coding=utf-8
 from __future__ import absolute_import
-from octoprint.events import eventManager, Events
 from octoprint.util import RepeatedTimer, ResettableTimer
 import octoprint.plugin
 from simple_pid import PID
@@ -11,7 +10,6 @@ from flask_login import current_user
 from octoprint_heated_chamber.fan import softwarePwmFan, hardwarePwmFan
 from octoprint_heated_chamber.temperature import Ds18b20, list_ds18b20_devices
 from octoprint_heated_chamber.heater import RelayHeater, RelayMode
-from octoprint_heated_chamber.servo import servoVentilation
 
 import threading
 
@@ -22,14 +20,12 @@ class HeatedChamberPlugin(
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.SimpleApiPlugin,
     octoprint.plugin.TemplatePlugin,
-    octoprint.plugin.EventHandlerPlugin,
 ):
-    _target_temperature = 0
+    _target_temperature = None
     _current_temperature = None
     _timer = None
     _event_object = threading.Event()
-    print_in_progress = None
-
+    
     ##~~ StartupPlugin mixin
 
     def on_after_startup(self):
@@ -38,16 +34,13 @@ class HeatedChamberPlugin(
         self._heater = None
         self._temperature_sensor = None
         self._pid = None
-        self._servoVentilation = None
 
         self._frequency = None
         self._temperature_threshold = None
-        self._target_temperature = 0
+        self._target_temperature = None
         self._timer = None
         self._heaterPWMMode = False
         self._event_object = threading.Event()
-        
-        self.print_in_progress = None
 
         self.reset()
         return octoprint.plugin.StartupPlugin.on_after_startup(self)
@@ -83,7 +76,7 @@ class HeatedChamberPlugin(
             frequency=1.0,
             temperature_threshold=2.5,
             pid=dict(kp=-5, kd=-0.05, ki=-0.02, sample_time=5),
-            heaterfan=dict(pwm=dict(pin=24, frequency=200, idle_power=15, hardware_PWM_enabled=0)),
+            heaterfan=dict(pwm=dict(pin=24, frequency=25000, idle_power=15, hardware_PWM_enabled=0)),
             temperature_sensor=dict(
                 ds18b20=dict(frequency=1.0, device_id="28-0000057065d7")
             ),
@@ -166,7 +159,7 @@ class HeatedChamberPlugin(
         try:
             #self._logger.debug(f"Original parsed_temperatures={parsed_temperatures}")
             target_temperature = 0  # 0 means off for the preheat plugin
-            if self._target_temperature:
+            if self._target_temperature is not None:
                 target_temperature = self._target_temperature
             #else:
             #    target_temperature = 0
@@ -236,14 +229,13 @@ class HeatedChamberPlugin(
             target_temperature = float(cmd[cmd.index("S") + 1 :])
 
             # 0 means no target temp
-            #if target_temperature == 0:
-            #    target_temperature = None
+            if target_temperature == 0:
+                target_temperature = None
 
             self._logger.info(f"Detected target_temperature={target_temperature}")
             self.set_target_temperature(target_temperature)
 
             return None
-        
 
     ##~~ Plugin logic
 
@@ -256,50 +248,39 @@ class HeatedChamberPlugin(
             self._current_temperature = self._temperature_sensor.get_temperature()
             self._event_object.set()
             self._logger.debug(
-                f"LOOP: current_temperature={self._current_temperature }, target_temperature={target_temperature}, LOOP: current Printstate={self.print_in_progress } "
+                f"LOOP: current_temperature={self._current_temperature }, target_temperature={target_temperature}"
             )
-            ventilationState = None
-            #### Enable Control Logic for HEATING if a target temperatur is set ####
                            
             if target_temperature is not None: # Running Heating cooling Logic
+                new_value = self._pid(self._current_temperature )
+
+                #self._logger.debug(
+                #    f"LOOP new_value={new_value}, pid={self._pid}"
+                #)
+                #self._logger.debug(
+                #    f"LOOP: Pre FAN set power{self._heaterfan.get_power()}"
+                #)
                 
-                new_value = self._pid(self._current_temperature)
-                #if target_temperature > 30:
-                    #### HEATERFAN Control Logic ####
-                    
-                ## close Iris
-                if self._servoVentilation.get_open != self._pwm_Servo_close_opening:
-                    self._servoVentilation.set_open(self._pwm_Servo_close_opening)
-                    ventilationState = "close"
-                #HeaterFan: Min to Idle, above idle Fanspeed is set by PID result, 0No Heater Fan Off
-                if 0 < new_value < self._pwm_heaterfan_idle_power:
+                #HeaterFan: Min to Idle, above idle Fanspeed is set by PID result, No Heater Fan Off
+                if 0.0 < new_value < self._pwm_heaterfan_idle_power:
                     self._heaterfan.set_power(self._pwm_heaterfan_idle_power)
-                elif new_value > self._pwm_heaterfan_idle_power:
+                elif self._pwm_heaterfan_idle_power < new_value:
                     self._heaterfan.set_power(new_value)
-                elif not self.print_in_progress and self._current_temperature >= 50:
-                    self._heaterfan.set_power(self._pwm_heaterfan_idle_power) 
-                else:
-                    self._heaterfan.set_power(0)
-                    #if self._servoVentilation.get_open != self._pwm_Servo_idle_opening:
-                    #    self._servoVentilation.set_open(self._pwm_Servo_idle_opening)
-                    #    ventilationState = "idle"
-
-
+                    
                 #self._logger.debug(
                 #    f"LOOP: new_value={new_value}, Post Fan Set ={self._heaterfan.get_power()}"
                 #)
                 #self._logger.debug(f"LOOP: Heater State:{self._heater.state()}, HeeaterFan Power={self._heaterfan.get_power()}")
-
-
-                #### HEATER Control Logic ####
-                                
+                
                 if not self._heaterPWMMode:
                     if not self._heater.state() and self._current_temperature  < (
                         target_temperature - self._temperature_threshold
                     ):
                         self._heater.turn_on()
                         #self._pid.set_auto_mode(False)
-                    elif self._heater.state() and self._current_temperature  >= target_temperature:
+                    elif self._heater.state() and self._current_temperature  > (
+                        target_temperature + self._temperature_threshold
+                    ):
                         self._heater.turn_off()
                         #self._pid.set_auto_mode(True)
                 else:
@@ -309,77 +290,30 @@ class HeatedChamberPlugin(
                         else: 
                             pwmHeaterValue = new_value
                         self._heater.set_power(new_value)
-                            
                     
-                # #### COOLERFAN Control Logic ####
-                # ''' 
-                # elif self.print_in_progress and target_temperature is None: self.set_target_temperature(_pwm_coolerfan_cooling_targettemp)
-                    
-                # elif self.print_in_progress and target_temperature >= 0:    
-                    
-                #     new_value = self._pid(self._current_temperature)
-                    
-                #     self._logger.debug(f"_loop Cooling new_value= {new_value}")
-                    
-                #     #TODO: Servo controlled ventilation handling
-                    
-                #     if self._servoVentilation.get_open != self._pwm_Servo_open_opening:
-                #         self._servoVentilation.set_open(self._pwm_Servo_open_opening)
-                #         ventilationState = "open"
-                    
-                #     # Cooling PID Values are negative (-100 to 0)
-                #     if new_value < 0:
-                #         coolingValue = abs(new_value)
-                #         if 0 < coolingValue < self._pwm_coolerfan_idle_power:
-                #             self._coolerfan.set_power(self._pwm_coolerfan_idle_power)
-                #         elif coolingValue > (self._pwm_coolerfan_idle_power):
-                #             self._coolerfan.set_power(coolingValue)
-                #         else:
-                #             self._coolerfan.set_power(0)
-                #             #if self._servoVentilation.get_open != self._pwm_Servo_close_opening:
-                #             #    self._servoVentilation.set_open(self._pwm_Servo_close_opening)
-                #             #    ventilationState = "close"                        
-                #     ''' 
-                
-            #### disable control logic  and shutting down devices        
-            else:   
-                ## Heater Handling ##
-                if not self._heaterPWMMode: ## Relay controlled Heater
+            else:
+                if not self._heaterPWMMode:
                     self._heater.turn_off()
-                else:                       ## PWM cotntroled Heater
-                    self._heater.set_power(0)
-                
-                ## Heaterfan handling ##
-                if self._current_temperature > 50: ### Safe Cooling Down Heater element ###
-                    self._heaterfan.set_power(self._pwm_heaterfan_idle_power) 
                 else:
-                    self._heaterfan.set_power(0)
+                    self._heater.set_power(0)
                     
-                ## Coolerfan handling ##
-                self._coolerfan.set_power(0) 
-                    
-                    
-                ## Servo Handling             
-                if self._servoVentilation.get_open != self._pwm_Servo_idle_opening:
-                    self._servoVentilation.set_open(self._pwm_Servo_idle_opening)
-                    ventilationState = "idle"
-                            
-            self._logger.info(f"LOOP: Heater State:{self._heater.state()}, HeaterFan Power={self._heaterfan.get_power()}, ServoVentialtion State={ventilationState}, Cooling Fan Power={self._coolerfan.get_power()}")
-            
-            
+                self._heaterfan.set_power(0)
+                
+            self._logger.info(f"LOOP: Heater State:{self._heater.state()}, Fan Power={self._heaterfan.get_power()}")
+            return
+
         except Exception as ex:
             self._heater.turn_off()
-            self._heater.set_power(0)
             self._logger.warn(f"_loop Exception: {ex}")
             if self._timer.is_alive():
                 self._logger.debug(f"_loop Exception: self._timer is alive")
             else:
                 self._logger.warn(f"_loop Exception: self._temperature_sensor not alive, function-reset")
                 self.reset()
-                
-                
+
+
     def reset(self):
-        ### HeaterFan
+        # Fan
         if self._heaterfan is not None:
             self._heaterfan.idle()
             self._heaterfan.destroy()
@@ -405,8 +339,6 @@ class HeatedChamberPlugin(
             )
         self._heaterfan.idle()
 
-
-        ### CoolerFan
         if self._coolerfan is not None:
             self._coolerfan.idle()
             self._coolerfan.destroy()
@@ -421,14 +353,6 @@ class HeatedChamberPlugin(
         self._pwm_coolerFan_hardware_PWM_enabled = self._settings.get_int(
             ["coolerfan", "pwm", "hardware_PWM_enabled"], merged=True
         )
-        '''
-        self._pwm_coolerfan_cooling_targettemp = self._settings.get_int(
-            ["coolerfan", "pwm", "cooling_targettemp"], merged=True
-        )
-        '''
-        self._pwm_coolerfan_cooling_targettemp = 25.0
-        
-        
         if self._pwm_coolerFan_hardware_PWM_enabled:
             self._coolerfan = hardwarePwmFan(
                 self._logger, pwm_coolerfan_pin, pwm_coolerfan_frequency, self._pwm_coolerfan_idle_power
@@ -438,40 +362,7 @@ class HeatedChamberPlugin(
                 self._logger, pwm_coolerfan_pin, pwm_coolerfan_frequency, self._pwm_coolerfan_idle_power
             )
             
-        self._coolerfan.idle()
-        
-        
-        ### Servo Ventilation
-        if self._servoVentilation is not None:
-            self._servoVentilation.idle()
-            self._servoVentilation.destroy()
-            
-        '''
-        servo_pin = self._settings.get_int(["ServoVentilation", "pwm", "pin"], merged=True)
-        
-        self._pwm_Servo_idle_opening = self._settings.get_float(
-            ["ServoVentilation", "pwm", "idle_opening"], merged=True
-        )
-        self._pwm_Servo_close_opening = self._settings.get_int(
-            ["ServoVentilation", "pwm", "close_opening"], merged=True
-        )
-        self._pwm_Servo_open_opening = self._settings.get_int(
-            ["ServoVentilation", "pwm", "open_opening"], merged=True
-        )
-        '''
-
-        
-        
-        servo_pin = 7
-        self._pwm_Servo_idle_opening = 500
-        self._pwm_Servo_close_opening = 2500    
-        self._pwm_Servo_open_opening = 500
-        
-        self._servoVentilation = servoVentilation(
-            self._logger, servo_pin, self._pwm_Servo_idle_opening
-        )
-
-        self._servoVentilation.idle()   
+        self._coolerfan.idle()        
     
         # Temperature sensor
         if self._temperature_sensor is not None:
@@ -539,10 +430,9 @@ class HeatedChamberPlugin(
         )
         if self._target_temperature is not None:
             self._pid.setpoint = self._target_temperature
-            
-            #    self._pid.set_auto_mode(True)
-            #else:
-            #    self._pid.set_auto_mode(True)
+            self._pid.set_auto_mode(True)
+        else:
+            self._pid.set_auto_mode(True)
 
         # Timer
         self._frequency = self._settings.get_float(["frequency"], merged=True)
@@ -561,10 +451,6 @@ class HeatedChamberPlugin(
         self._temperature_threshold = self._settings.get_float(
             ["temperature_threshold"], merged=True
         )
-        
-        
-        
-        
 
     def set_target_temperature(self, target_temperature):
         self._target_temperature = target_temperature
@@ -573,65 +459,17 @@ class HeatedChamberPlugin(
         )
 
         if self._target_temperature is not None:
-        
             self._pid.setpoint = self._target_temperature
             self._logger.debug(
                 f"Set PID Setpoint: {self._target_temperature}"
-                )
-            #    self._pid.set_auto_mode(True)
-            #else:
-            #    self._pid.set_auto_mode(True)
-
-
-
-
-    # ~~ EventPlugin mixin
-    def on_event(self, event, payload):
-        if event == Events.CONNECTED:
-            self._logger.debug("on_event: Events.CONNECTED")
-            #self.conneted = True
-            #self.update_ui()
-
-        #if event == Events.CLIENT_OPENED:
-            # self.update_ui()
-        
-        if event == Events.PRINT_RESUMED:
-            self._logger.debug("on_event: Events.PRINT_RESUMED. previous status: self.print_in_progress= %s", self.print_in_progress)
-            self.print_in_progress = True
-             # self.update_ui()
-           
-        if event == Events.PRINT_STARTED:
-            self._logger.debug("on_event: Events.PRINT_STARTED. previous status: self.print_in_progress= %s", self.print_in_progress)
-            self.print_in_progress = True
-            #self.run_tasks()
-            #self.update_ui()
-
-        elif event == Events.PRINT_DONE:
-            self._logger.debug("on_event: Events.PRINT_DONE. previous status: self.print_in_progress= %s", self.print_in_progress)
-            self.print_in_progress = False
-            self.set_target_temperature(0.0)
-            #self.update_ui()
-
-        elif event in (Events.PRINT_CANCELLED, Events.PRINT_FAILED):
-            self._logger.debug("on_event: Events.PRINT_CANCELLED or Events.PRINT_FAILED. previous status: self.print_in_progress= %s", self.print_in_progress)
-            self.print_in_progress = False
-            self.set_target_temperature(0.0)
-            #self.run_tasks()
-
-        if event in (Events.ERROR, Events.DISCONNECTED):
-            self._logger.debug("on_event: Events.ERROR or Events.DISCONNECTED. previous status: self.print_in_progress= %s", self.print_in_progress)
-            self._logger.info("Detected Error or Disconnect in %s will call listeners for shutdown_on_error!", event)
-            self.print_in_progress = False
-            self.set_target_temperature(0.0)
-            #self.run_tasks()
-
-        if event == Events.PRINTER_STATE_CHANGED:
-            if "error" in payload["state_string"].lower():
-                self._logger.debug("on_event: Events.PRINTER_STATE_CHANGED. previous status: self.print_in_progress= %s", self.print_in_progress)
-                self._logger.info("Detected Error in %s id: %s state: %s  will call listeners for shutdown_on_error!", event, payload["state_id"], payload["state_string"])
-                self.print_in_progress = False
-                self.set_target_temperature(0.0)
-                #self.run_tasks()
+             )
+            self._pid.set_auto_mode(True)
+        else:
+            self._pid.set_auto_mode(True)
+            
+        self._logger.debug(
+            f"self._pid: {self._pid}"
+            )
 
 
 
