@@ -32,21 +32,25 @@ class servoVentilation(Servo):
     #openvalue=2500
     #closeavalue=500
     def __init__(self, logger, servo_pin, idle_opening):
-        self._logger = logger
-        self._pin = servo_pin
-        self._piServo = pigpio.pi()
-        self.irisPos = None
+        #super().__init__(logger)
+        try:
+            self._logger = logger
+            self._pin = servo_pin
+            self._piServo = pigpio.pi()
+            self.irisPos = None
 
-        self._idle_opening = idle_opening
-        self._lastOpening = None
-        #self._heaterPWMMode = heaterPWMMode
+            self._idle_opening = idle_opening
+            #self._lastOpening = None
+            #self._heaterPWMMode = heaterPWMMode
 
-        if not self._piServo.connected:
-            self._logger.error("Error connectiong to pigpio")
-        self._piServo.set_mode(self._pin, pigpio.OUTPUT) 
+            if not self._piServo.connected:
+                self._logger.error("Error connectiong to pigpio")
+            self._piServo.set_mode(self._pin, pigpio.OUTPUT) 
 
-        self.set_open(self._idle_opening)
-        
+            self.set_open(self._idle_opening)
+        except Exception as ex:
+            self._logger.warn(f"Servo Init Exception: {ex}")
+
 
     def destroy(self):
         self._piServo.stop()
@@ -61,17 +65,23 @@ class servoVentilation(Servo):
         self.set_open(self._idle_opening)
 
     def set_open(self, opening):
-        #assert opening >= 0
-        #assert opening <= 100
+        try:
+            #assert opening >= 0
+            #assert opening <= 100
 
-        self._opening = opening
-        self._logger.debug(f"Set opening to {self._opening}")
-        self._piServo.set_servo_pulsewidth(
-            self._pin, self._opening
-        )
-        self._lastOpening = self._opening
+            self._opening = opening
+            self._logger.debug(f"Set opening to {self._opening}")
+            self._piServo.set_servo_pulsewidth(
+                self._pin, self._opening
+            )
+            #self._lastOpening = self._opening
+            #self._piServo.set_servo_pulsewidth(
+            #    self._pin, 0
+            #)
+        except Exception as ex:
+            self._logger.warn(f"Servo SetOpening Exception: {ex}")
 
     def get_open(self):
-        #currentServopulses = _piServo.get_servo_pulsewidth(self._pin)
-        #return currentServopulses
-        return self._lastOpening
+        currentServopulses = _piServo.get_servo_pulsewidth(self._pin)
+        return currentServopulses
+        #return self._lastOpening

@@ -31,6 +31,7 @@ class softwarePwmFan(Fan):
     """A class the represent a PWM controlled fan"""
 
     def __init__(self, logger, pwm_pin, pwm_frequency, idle_power):
+        #super().__init__(logger)
         self._logger = logger
         self._frequency = pwm_frequency
         self._pin = pwm_pin
